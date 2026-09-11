@@ -50,7 +50,7 @@ app/src/main/assets/aparcamientos_pmr_malaga_4326.geojson
 ## Configuración
 
 - Paquete: `com.javisandom.aparcamalagapmr`
-- Versión actual: `0.3.0` (`versionCode 3`)
+- Versión actual: `0.4.0` (`versionCode 4`)
 - `minSdk 26`, `targetSdk 37`, `compileSdk 37`
 - Android Gradle Plugin 9.3.2
 - Gradle 9.7.1
@@ -67,6 +67,12 @@ app/src/main/assets/aparcamientos_pmr_malaga_4326.geojson
 - No se muestran ubicaciones ficticias como datos municipales.
 
 ## Verificación
+
+La búsqueda del teléfono prepara un índice normalizado del catálogo en segundo plano. El campo de texto se actualiza al escribir y filtra tras 200 ms de pausa; las consultas anteriores se cancelan. Si no hay coincidencias, espera otros 450 ms antes de resolver la dirección con el servicio Geocoder del dispositivo, limitado a seis segundos. El proveedor puede recibir el texto de la dirección consultada; no se exige permiso de ubicación para buscar direcciones. Los resultados válidos se conservan en una caché de sesión de 32 direcciones. Se muestran hasta 30 plazas municipales ordenadas respecto a la dirección resuelta, con su nombre y origen de distancias visibles. Si no se puede resolver, se indica que hay que revisar dirección/conexión; no se inventa un destino.
+
+«Ordenar por cercanía» limpia la búsqueda por dirección, muestra una posición reciente válida si existe y solicita red/GPS en paralelo durante un máximo de ocho segundos. Utiliza la primera medición válida y cancela la otra solicitud. Las solicitudes se cancelan al salir de la pantalla. La precisión y rapidez reales siguen dependiendo de la señal y del servicio del dispositivo.
+
+Validación de 0.4.0: 40 pruebas unitarias y 20 instrumentadas en emulador, `assembleDebug`, `assembleDebugAndroidTest` y `lintDebug` correctos. Prueba manual de geocodificación con «Calle Larios 1»: el servicio devolvió «C. Marqués de Larios, 1» y la lista comenzó por CALLE CORTINA DEL MUELLE, 1, a 256 m en línea recta. Esta versión todavía requiere comprobar la sensación de escritura y el tiempo de obtención de ubicación en el teléfono físico; las carreras entre proveedores, caducidad y cancelación se comprobaron con pruebas controladas.
 
 ```bash
 ./gradlew testDebugUnitTest

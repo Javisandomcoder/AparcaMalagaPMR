@@ -29,6 +29,9 @@ El uso inicial es personal, principalmente para ayudar a la suegra de Javi. La p
 ### Teléfono
 - Listado de plazas.
 - Búsqueda por zona o dirección.
+- Escritura fluida: índice del catálogo y filtrado fuera del hilo de interfaz; cancelar búsquedas anteriores.
+- Si una dirección no coincide con plazas, resolverla en Málaga y mostrar las plazas municipales más cercanas a ella, indicando el origen de las distancias. No sustituir una dirección desconocida por una ubicación inventada.
+- Al ordenar por cercanía, mostrar una ubicación reciente válida mientras se solicita una nueva por red y GPS con espera limitada.
 - Orden por distancia cuando haya permiso de ubicación.
 - Detalle, fecha de actualización y atribución de la fuente.
 - Acción para abrir navegación externa.

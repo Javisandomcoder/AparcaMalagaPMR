@@ -29,11 +29,18 @@ class ParkingCarAppService : CarAppService() {
         if (BuildConfig.DEBUG) {
             HostValidator.ALLOW_ALL_HOSTS_VALIDATOR
         } else {
-            HostValidator.Builder(applicationContext).build()
+            releaseHostValidator(applicationContext)
         }
 
     override fun onCreateSession(): Session = ParkingSession()
 }
+
+internal fun releaseHostValidator(context: android.content.Context): HostValidator =
+    HostValidator.Builder(context)
+        // Android Auto may not hold the privileged TEMPLATE_RENDERER permission.
+        // Trust the official host certificates while keeping other hosts blocked.
+        .addAllowedHosts(androidx.car.app.R.array.hosts_allowlist_sample)
+        .build()
 
 private class ParkingSession : Session() {
     override fun onCreateScreen(intent: Intent): Screen =

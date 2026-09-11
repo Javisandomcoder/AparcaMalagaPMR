@@ -4,15 +4,22 @@ import java.text.Normalizer
 import java.util.Locale
 
 fun searchParkingSpots(spots: List<ParkingSpot>, query: String): List<ParkingSpot> {
-    val normalizedQuery = query.normalizedForSearch()
-    if (normalizedQuery.isEmpty()) return spots
-    return spots.filter { spot ->
-        spot.address.normalizedForSearch().contains(normalizedQuery) ||
-            spot.description.normalizedForSearch().contains(normalizedQuery)
+    return ParkingSearchIndex(spots).search(query)
+}
+
+/** Normalize the catalogue once, not on every keystroke. Construct off the UI thread. */
+class ParkingSearchIndex(private val spots: List<ParkingSpot>) {
+    private val entries = spots.map { Triple(it, it.address.normalizedForSearch(), it.description.normalizedForSearch()) }
+    fun search(query: String): List<ParkingSpot> {
+        val key = query.normalizedForSearch()
+        if (key.isEmpty()) return spots
+        return entries.filter { (_, address, description) -> address.contains(key) || description.contains(key) }
+            .map { it.first }
     }
 }
 
-private fun String.normalizedForSearch(): String = Normalizer
+private val SEARCH_MARKS = "\\p{M}+".toRegex()
+internal fun String.normalizedForSearch(): String = Normalizer
     .normalize(trim(), Normalizer.Form.NFD)
-    .replace("\\p{M}+".toRegex(), "")
+    .replace(SEARCH_MARKS, "")
     .lowercase(Locale.ROOT)

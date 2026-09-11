@@ -28,7 +28,8 @@ fun distanceMeters(origin: UserLocation, spot: ParkingSpot): Double {
 fun sortParkingSpotsByDistance(
     spots: List<ParkingSpot>,
     origin: UserLocation,
-): List<ParkingSpot> = spots.sortedBy { distanceMeters(origin, it) }
+): List<ParkingSpot> = spots.map { it to distanceMeters(origin, it) }
+    .sortedBy { it.second }.map { it.first }
 
 fun formatDistance(meters: Double): String = if (meters < 1_000) {
     "${meters.roundToInt()} m"

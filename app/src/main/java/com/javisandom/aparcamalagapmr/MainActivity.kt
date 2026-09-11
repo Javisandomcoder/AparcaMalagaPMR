@@ -8,7 +8,6 @@ import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
-import android.os.CancellationSignal
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,6 +35,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -53,8 +58,12 @@ import com.javisandom.aparcamalagapmr.domain.UserLocation
 import com.javisandom.aparcamalagapmr.domain.distanceMeters
 import com.javisandom.aparcamalagapmr.domain.formatDistance
 import com.javisandom.aparcamalagapmr.domain.navigationUriFor
-import com.javisandom.aparcamalagapmr.domain.searchParkingSpots
-import com.javisandom.aparcamalagapmr.domain.sortParkingSpotsByDistance
+import com.javisandom.aparcamalagapmr.domain.ParkingSearchEngine
+import com.javisandom.aparcamalagapmr.domain.ParkingSearchResult
+import com.javisandom.aparcamalagapmr.domain.ResolvedAddress
+import com.javisandom.aparcamalagapmr.domain.firstFreshLocation
+import com.javisandom.aparcamalagapmr.data.AddressResolver
+import com.javisandom.aparcamalagapmr.data.requestCurrentFix
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -63,9 +72,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
 
 class MainActivity : ComponentActivity() {
-    private var locationCancellation: CancellationSignal? = null
+    private var locationJob: Job? = null
+    private val isLocating = mutableStateOf(false)
+    private val addressResolver by lazy { AddressResolver(applicationContext) }
+    private val resolveAddress: suspend (String) -> ResolvedAddress? = { addressResolver.resolve(it) }
     private lateinit var locationStore: LocationStore
     private val deviceLocationSource by lazy { DeviceLocationSource(applicationContext) }
     private lateinit var parkingRepository: ParkingRepository
@@ -89,11 +102,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         locationStore = LocationStore(applicationContext)
         parkingRepository = createParkingRepository(applicationContext)
-        userLocation.value = deviceLocationSource.latest()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (isActive) {
-                    userLocation.value = deviceLocationSource.latest()
+                    userLocation.value = withContext(Dispatchers.IO) { deviceLocationSource.latest() }
                     delay(30_000L)
                 }
             }
@@ -109,6 +121,8 @@ class MainActivity : ComponentActivity() {
                 onRequestLocation = ::requestLocation,
                 onRefresh = { refreshParkingData(force = true) },
                 onNavigate = ::openNavigation,
+                resolveAddress = resolveAddress,
+                isLocating = isLocating.value,
             )
         }
         loadParkingData()
@@ -168,55 +182,53 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadCurrentLocation() {
-        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        if (!LocationManagerCompat.isLocationEnabled(locationManager)) {
-            locationMessage.value = "Activa la ubicación del dispositivo para ordenar por cercanía."
-            return
-        }
-        val fineGranted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-        ) == PackageManager.PERMISSION_GRANTED
-        val providers = if (fineGranted) {
-            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        } else {
-            listOf(LocationManager.NETWORK_PROVIDER)
-        }
-        val provider = providers.firstOrNull {
-            LocationManagerCompat.hasProvider(locationManager, it) && locationManager.isProviderEnabled(it)
-        }
-        if (provider == null) {
-            locationMessage.value = "No hay un proveedor de ubicación disponible."
-            return
-        }
-        locationCancellation?.cancel()
-        val cancellation = CancellationSignal()
-        locationCancellation = cancellation
-        locationMessage.value = "Obteniendo ubicación…"
-        try {
-            LocationManagerCompat.getCurrentLocation(
-                locationManager,
-                provider,
-                cancellation,
-                ContextCompat.getMainExecutor(this),
-            ) { location ->
-                if (location == null) {
-                    locationMessage.value = "No se ha podido obtener la ubicación. Inténtalo de nuevo."
-                } else {
-                    val obtained = UserLocation(location.latitude, location.longitude)
-                    locationStore.save(obtained, location.time)
-                    userLocation.value = deviceLocationSource.latest()
-                    locationMessage.value = null
+        if (locationJob?.isActive == true) return
+        locationJob = lifecycleScope.launch {
+            isLocating.value = true
+            try {
+                val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                val cached = withContext(Dispatchers.IO) { deviceLocationSource.latestFix() }
+                userLocation.value = cached?.location
+                locationMessage.value = if (cached != null) "Mostrando ubicación reciente; actualizando…" else "Obteniendo ubicación…"
+                val enabled = withContext(Dispatchers.IO) { LocationManagerCompat.isLocationEnabled(manager) }
+                if (!enabled) {
+                    locationMessage.value = "Activa la ubicación del dispositivo para ordenar por cercanía."
+                    return@launch
                 }
+                val providers = withContext(Dispatchers.IO) {
+                    buildList {
+                        add(LocationManager.NETWORK_PROVIDER)
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                            add(LocationManager.GPS_PROVIDER)
+                        }
+                    }.filter { LocationManagerCompat.hasProvider(manager, it) && manager.isProviderEnabled(it) }
+                }
+                // Cache is already visible. Race both sources instead of waiting for GPS indoors.
+                val fix = firstFreshLocation(null, providers.map { provider ->
+                    suspend { requestCurrentFix(this@MainActivity, manager, provider) }
+                })
+                if (fix != null && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    withContext(Dispatchers.IO) { locationStore.save(fix.location, fix.capturedAtMillis!!) }
+                    userLocation.value = fix.location
+                    locationMessage.value = null
+                } else {
+                    userLocation.value = withContext(Dispatchers.IO) { deviceLocationSource.latest() }
+                    locationMessage.value = if (userLocation.value != null) "Usando la última ubicación reciente disponible."
+                        else "No se ha podido obtener la ubicación. Inténtalo de nuevo o busca una dirección."
+                }
+            } catch (_: SecurityException) {
+                userLocation.value = null
+                locationMessage.value = "No hay permiso para acceder a la ubicación."
+            } finally {
+                isLocating.value = false
             }
-        } catch (_: SecurityException) {
-            locationMessage.value = "No hay permiso para acceder a la ubicación."
         }
     }
 
     override fun onStop() {
-        locationCancellation?.cancel()
-        locationCancellation = null
+        locationJob?.cancel()
+        locationJob = null
+        isLocating.value = false
         locationMessage.value = null
         super.onStop()
     }
@@ -247,12 +259,27 @@ fun AparcaMalagaApp(
     onRequestLocation: () -> Unit = {},
     onRefresh: () -> Unit = {},
     onNavigate: (ParkingSpot) -> Unit = {},
+    resolveAddress: suspend (String) -> ResolvedAddress? = { null },
+    isLocating: Boolean = false,
 ) {
-    var query by remember { mutableStateOf("") }
-    val visibleSpots = remember(spots, query, userLocation) {
-        val filtered = searchParkingSpots(spots, query)
-        userLocation?.let { sortParkingSpotsByDistance(filtered, it) } ?: filtered
+    var query by rememberSaveable { mutableStateOf("") }
+    var submitted by remember { mutableStateOf(0) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val engine by produceState<ParkingSearchEngine?>(null, spots) {
+        value = withContext(Dispatchers.Default) { ParkingSearchEngine(spots) }
     }
+    val searchState by produceState(PhoneSearchState(), engine, query, userLocation, submitted, resolveAddress) {
+        val searchEngine = engine ?: return@produceState
+        value = PhoneSearchState()
+        if (query.isNotBlank()) delay(200)
+        val result = searchEngine.search(query, userLocation) { address ->
+            delay(450) // Avoid a network lookup for every partial word.
+            resolveAddress(address)
+        }
+        value = PhoneSearchState(result, false)
+    }
+    val result = searchState.result
+    val visibleSpots = result.spots
 
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
@@ -285,6 +312,8 @@ fun AparcaMalagaApp(
                         onValueChange = { query = it },
                         label = { Text("Buscar por calle o zona") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { submitted++; keyboard?.hide() }),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -296,12 +325,13 @@ fun AparcaMalagaApp(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     OutlinedButton(
-                        onClick = onRequestLocation,
+                        onClick = { query = ""; keyboard?.hide(); onRequestLocation() },
+                        enabled = !isLocating,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                     ) {
-                        Text(if (userLocation == null) "Ordenar por cercanía" else "Ordenadas por cercanía")
+                        Text(if (isLocating) "Actualizando ubicación…" else if (userLocation == null || query.isNotBlank()) "Ordenar por cercanía" else "Ordenadas por cercanía")
                     }
                     OutlinedButton(
                         onClick = onRefresh,
@@ -320,14 +350,23 @@ fun AparcaMalagaApp(
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
+                    if (result.address != null) {
+                        Text("Cerca de: ${result.address}", modifier = Modifier.padding(horizontal = 16.dp),
+                            style = MaterialTheme.typography.titleSmall)
+                        Text("Sin coincidencias directas. Distancias desde la dirección buscada, en línea recta.",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                     if (visibleSpots.isEmpty()) {
                         Text(
                             text = if (isLoading) {
                                 "Cargando plazas municipales…"
+                            } else if (searchState.searching) {
+                                "Buscando plazas…"
                             } else if (spots.isEmpty()) {
                                 "No se han podido cargar las plazas municipales."
                             } else {
-                                "No hay resultados para esta búsqueda."
+                                result.message ?: "No hay resultados para esta búsqueda."
                             },
                             modifier = Modifier.padding(24.dp),
                         )
@@ -339,7 +378,7 @@ fun AparcaMalagaApp(
                             items(visibleSpots, key = { it.id }) { spot ->
                                 ParkingSpotCard(
                                     spot = spot,
-                                    userLocation = userLocation,
+                                    userLocation = result.origin,
                                     onNavigate = { onNavigate(spot) },
                                 )
                             }
@@ -350,6 +389,11 @@ fun AparcaMalagaApp(
         }
     }
 }
+
+private data class PhoneSearchState(
+    val result: ParkingSearchResult = ParkingSearchResult(emptyList(), null),
+    val searching: Boolean = true,
+)
 
 @Composable
 private fun ParkingSpotCard(
