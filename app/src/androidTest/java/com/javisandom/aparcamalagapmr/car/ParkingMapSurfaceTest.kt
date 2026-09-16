@@ -44,6 +44,38 @@ class ParkingMapSurfaceTest {
         } finally { renderer.close(); scope.cancel() }
     }
 
+    @Test fun rotated_map_keeps_marker_taps_aligned() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        val model = MovingParkingMap(listOf(spot))
+        model.updateLocation(UserLocation(spot.latitude, spot.longitude - .002))
+        model.updateLocation(UserLocation(spot.latitude, spot.longitude - .001))
+        var selected: ParkingSpot? = null
+        val renderer = ParkingMapSurface(InstrumentationRegistry.getInstrumentation().targetContext,
+            model, scope, tileProvider = { _, _, _ -> null }) { selected = it }
+        try {
+            renderer.draw(Canvas(Bitmap.createBitmap(800, 480, Bitmap.Config.ARGB_8888)))
+            val dx = MapProjection.project(UserLocation(spot.latitude, spot.longitude), 16).x -
+                MapProjection.project(model.center, 16).x
+            renderer.onClick(400f, (480 * .65 - dx).toFloat())
+            assertEquals(spot, selected)
+        } finally { renderer.close(); scope.cancel() }
+    }
+
+    @Test fun vehicle_is_anchored_while_following_instead_of_jumping_ahead_of_camera() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        val model = MovingParkingMap(emptyList())
+        model.updateLocation(UserLocation(spot.latitude, spot.longitude - .01))
+        val renderer = ParkingMapSurface(InstrumentationRegistry.getInstrumentation().targetContext,
+            model, scope, tileProvider = { _, _, _ -> null }) {}
+        try {
+            // New fix arrives while rendered camera is still at the previous position.
+            model.updateLocation(UserLocation(spot.latitude, spot.longitude))
+            val bitmap = Bitmap.createBitmap(800, 480, Bitmap.Config.ARGB_8888)
+            renderer.draw(Canvas(bitmap))
+            assertEquals(android.graphics.Color.parseColor("#2378DB"), bitmap.getPixel(400, 307))
+        } finally { renderer.close(); scope.cancel() }
+    }
+
     @Test fun dark_mode_changes_the_map_background() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         var dark = false

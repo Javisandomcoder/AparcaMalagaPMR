@@ -94,12 +94,13 @@ internal class MovingParkingScreen(carContext: CarContext) : Screen(carContext) 
 
     override fun onGetTemplate(): Template = when (loader.state.value) {
         CarParkingState.Loading -> movingMapLoadingTemplate()
-        CarParkingState.Error -> parkingErrorTemplate(::load)
+        CarParkingState.Error -> parkingErrorTemplate(onRetry = ::load)
         is CarParkingState.Ready -> movingMapTemplate(
             onCenter = { renderer?.recenter() },
-            onList = { screenManager.push(ParkingHomeScreen(carContext)) },
+            onList = { screenManager.push(ParkingHomeScreen(carContext, canGoBack = true)) },
             onZoomIn = { renderer?.changeZoom(1) },
             onZoomOut = { renderer?.changeZoom(-1) },
+            onSearch = { screenManager.push(ParkingAddressSearchScreen(carContext)) },
         )
     }
 }
@@ -116,14 +117,16 @@ internal fun movingMapTemplate(
     onList: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
+    onSearch: () -> Unit = {},
 ): MapWithContentTemplate {
-    val content = MessageTemplate.Builder("Explora el mapa para elegir una plaza PMR.")
+    val content = MessageTemplate.Builder("Busca una dirección o elige una plaza en el mapa.")
         .setHeader(Header.Builder().setTitle("Plazas PMR") .setStartHeaderAction(Action.APP_ICON).build())
         .build()
     return MapWithContentTemplate.Builder()
         .setContentTemplate(content)
         .setActionStrip(ActionStrip.Builder()
-            .addAction(Action.Builder().setTitle("Centrar").setOnClickListener { onCenter() }.build())
+            .addAction(Action.Builder().setTitle("Buscar").setOnClickListener { onSearch() }.build())
+            .addAction(Action.Builder().setTitle("Seguir vehículo").setOnClickListener { onCenter() }.build())
             .addAction(Action.Builder().setTitle("Listado").setOnClickListener { onList() }.build())
             .build())
         .setMapController(MapController.Builder().setMapActionStrip(ActionStrip.Builder()

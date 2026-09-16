@@ -20,14 +20,14 @@ Aplicación Android nativa para localizar plazas de aparcamiento reservadas para
 - Si la red o el recurso fallan, se conserva la última copia y la aplicación sigue operativa.
 - Acción **Navegar** mediante URI `geo:` para Google Maps, Waze u otra aplicación compatible.
 - Aviso explícito: la ubicación no implica disponibilidad en tiempo real.
-- Android Auto mediante Car App Library 1.7.0 y categoría `POI`. En Car API 7+ la pantalla principal utiliza `MapWithContentTemplate` con cartografía OpenStreetMap y marcadores municipales; en hosts anteriores conserva `PlaceListMapTemplate`.
-- Seguimiento del vehículo con solicitudes de ubicación cada 2 segundos / 5 metros mientras el mapa está visible. Las posiciones nuevas desplazan la cámara suavemente; se renuevan hasta 24 candidatos cada 75 metros y se omiten marcadores superpuestos.
-- Exploración, zoom y **Centrar** mediante controles del host. La interacción directa con marcadores depende del soporte táctil del host y puede requerir activar su modo de exploración. **Listado** ofrece una alternativa para seleccionar plazas.
+- Android Auto mediante Car App Library 1.7.0 y categoría `POI`. La pantalla principal abre tarjetas cercanas en `PlaceListMapTemplate`, con el mapa del host para situar sus marcadores.
+- **Buscar dirección** lleva a la búsqueda nativa; al enviarla aparecen tarjetas próximas a esa dirección. **Cerca de mí** en los resultados vuelve al inicio y Atrás conserva la consulta.
+- Se retira del flujo la pantalla propia de seguimiento, cámara animada y cartografía OpenStreetMap. El guiado corresponde a la aplicación externa de navegación elegida por Android Auto (Google Maps en la configuración del usuario).
 - La selección abre un detalle estable con distancia en línea recta, atribución y navegación externa.
 - La pantalla del coche carga la caché de forma asíncrona, muestra un indicador de carga y permite reintentar si falla la lectura.
 - En el coche, seleccionar una plaza abre su detalle con atribución, aviso de disponibilidad y acción **Navegar**.
-- El mapa comprueba la vigencia cada 5 segundos; el teléfono y el listado del coche, cada 30 segundos. El seguimiento se detiene al ocultar el mapa. Tras 20 segundos sin una medición reciente indica «Última ubicación disponible»; tras cinco minutos elimina la posición del vehículo.
-- El listado secundario mantiene sus filas estables. Su refresco manual vuelve a seleccionar las plazas próximas en Car API 5+.
+- Las tarjetas del coche comprueban la vigencia de ubicación cada 5 segundos; el teléfono, cada 30 segundos. La suscripción a ubicación se detiene al ocultar la lista. Sin una ubicación vigente, las tarjetas no muestran distancias desde el vehículo.
+- El listado del coche actualiza automáticamente las plazas por cercanía tras desplazarse 50 m, con un mínimo de 10 s entre selecciones y un margen de 25 m para evitar intercambios constantes. Conserva títulos numerados por posición; dirección, distancia, marcador y destino corresponden siempre a la plaza mostrada. Sin ubicación vigente conserva las tarjetas y oculta las distancias. El refresco manual vuelve a ordenar inmediatamente en Car API 5+. Las búsquedas por dirección mantienen su origen fijo.
 - Misma capa de dominio y datos para teléfono y coche.
 
 ## Fuente oficial y copia local
@@ -94,3 +94,27 @@ Prueba del 6 de septiembre de 2026 con Xiaomi Redmi Note 12 Pro 5G, Android Auto
 Al actualizar desde la versión anterior se observaron controles sobre fondo negro y ausencia de callbacks de superficie. Reiniciar por completo el proceso de Android Auto permitió recibir una superficie válida y dibujar el mapa; una simple reconexión previa no lo había resuelto. Se mantuvo además MapWithContentTemplate durante la carga, con prueba de regresión, aunque ese cambio por sí solo no resolvió el fondo negro. Hubo interrupciones de transporte USB durante la sesión, sin causa determinada. Las verificaciones finales pasaron: 31 pruebas unitarias, 18 instrumentadas en emulador, ambas compilaciones y lint sin errores.
 
 Pendiente: desplazamiento manual prolongado, seguimiento durante un trayecto real y renovación de candidatos cada 75 m, conservación de la selección durante ese movimiento, comprobación sin permisos/red y sesiones largas sin agotar pasos del host. Pulsar Centrar con el mapa ya centrado no valida por sí solo el retorno desde una exploración manual. Las pruebas en DHU con el teléfono estacionario no sustituyen la validación en vehículo.
+
+### Android Auto 0.5.0
+
+- Buscar una dirección de Málaga desde el mapa o el listado. El sistema del coche controla la entrada de texto/voz.
+- Los resultados indican distancias en línea recta desde la dirección; «Ver mapa» muestra sus marcadores. «Navegar» en el detalle abre navegación externa.
+- El mapa principal sigue al vehículo con orientación deducida de desplazamientos de al menos 15 m. Al explorar conserva la orientación; «Seguir vehículo» recupera el seguimiento. No calcula rutas ni muestra instrucciones de giro propias.
+- Pendiente de validación de búsqueda por voz y orientación en un vehículo real.
+
+### Android Auto 0.5.2
+
+- Tarjetas numeradas que cambian de aparcamiento automáticamente según la cercanía al vehículo. La dirección sigue visible en la primera línea y el marcador y la acción de detalle se actualizan con ella.
+- Reordenación limitada a una vez cada 10 segundos tras moverse 50 m, con 25 m de margen entre candidatos para evitar oscilaciones. La primera ubicación válida y el refresco explícito ordenan inmediatamente.
+- Suscripción a ubicación sólo mientras la lista está en primer plano. Los resultados de búsqueda por dirección conservan su referencia fija.
+- Verificación: 55 pruebas unitarias, 28 instrumentadas en emulador, `assembleDebug`, `assembleDebugAndroidTest`, `lintDebug` y bundle de publicación firmado correctos. Pendiente comprobar esta versión y el seguimiento de 0.5.1 en vehículo real.
+
+### Android Auto 0.5.1
+
+Seguimiento más estable: confirmación de giros grandes, filtrado de pequeñas oscilaciones, transiciones de al menos 1,4 s y giro de cámara limitado a 30 grados/s. Las ubicaciones repetidas no reinician la animación. El indicador del vehículo permanece fijo durante el seguimiento y la exploración conserva la orientación. Pendiente de prueba real.
+
+### Android Auto 0.6.0
+
+Flujo centrado en tarjetas y búsqueda tras la prueba del usuario en vehículo real: el seguimiento propio resultó poco preciso y poco fluido. Inicio directo en tarjetas en todos los hosts; «Buscar dirección», «Ver tarjetas» y «Cerca de mí» integran ambas consultas. El detalle conserva la distancia desde la dirección buscada. Se elimina el permiso de superficie propia; el mapa del host sigue situando las plazas. No se calculan ni dibujan rutas en la aplicación.
+
+Validación: 55 pruebas unitarias y 31 instrumentadas en emulador correctas; `assembleDebug`, `assembleDebugAndroidTest`, `lintDebug` y bundle de publicación firmado correctos. Pendiente comprobar el flujo simplificado en vehículo real.

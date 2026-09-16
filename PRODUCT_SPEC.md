@@ -37,8 +37,12 @@ El uso inicial es personal, principalmente para ayudar a la suegra de Javi. La p
 - Acción para abrir navegación externa.
 
 ### Android Auto
-- Pantalla principal con mapa propio en `MapWithContentTemplate` (Car API 7+), seguimiento del vehículo y marcadores próximos que se renuevan durante el desplazamiento.
-- Detalle al seleccionar una plaza y listado secundario; `PlaceListMapTemplate` como alternativa para sistemas anteriores.
+- Pantalla principal de tarjetas en `PlaceListMapTemplate`, con búsqueda de direcciones accesible desde la lista y detalle al seleccionar una plaza.
+- Sin pantalla propia de seguimiento del vehículo, cámara animada ni navegación interna. El mapa del host que acompaña a las tarjetas sólo sitúa las plazas; la navegación se delega a la aplicación externa mediante Android Auto.
+- Flujo: tarjetas cercanas → buscar dirección → tarjetas de la zona → detalle → navegar. Los resultados ofrecen volver a «Cerca de mí»; Atrás conserva la búsqueda.
+- Cada tarjeta proporciona un marcador P en las coordenadas municipales de la plaza para el mapa de Android Auto.
+- Las tarjetas cercanas al vehículo se reordenan automáticamente con ubicación vigente: al menos 50 m de desplazamiento y 10 s entre selecciones, con margen de 25 m para evitar oscilaciones. Mantienen títulos de posición estables y actualizan dirección, distancia y marcador conforme a las reglas de refresco del host. Las búsquedas por dirección conservan su origen fijo.
+- Búsqueda nativa de direcciones en Android Auto, con cancelación de consultas anteriores y resultados ordenados desde la dirección resuelta; tarjetas de resultados y navegación externa hasta la plaza elegida. El detalle conserva el origen de la búsqueda al mostrar distancias.
 - Distancia y dirección.
 - Selección de destino y transferencia a una aplicación de navegación.
 

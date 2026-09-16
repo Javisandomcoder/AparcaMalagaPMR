@@ -19,6 +19,7 @@ object MapProjection {
 }
 
 class MovingParkingMap(private val spots: List<ParkingSpot>) {
+    val heading = MapHeading()
     var origin: UserLocation? = null
         private set
     var center = spots.firstOrNull()?.let { UserLocation(it.latitude, it.longitude) } ?: UserLocation(36.7213, -4.4214)
@@ -31,6 +32,7 @@ class MovingParkingMap(private val spots: List<ParkingSpot>) {
         private set
     private var lastSelectionCenter: UserLocation? = null
     fun updateLocation(location: UserLocation?) {
+        heading.update(location)
         origin = location
         if (location != null && following) {
             center = location

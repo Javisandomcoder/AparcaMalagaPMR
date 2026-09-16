@@ -10,7 +10,7 @@ import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.javisandom.aparcamalagapmr.data.LocationStore
 
-/** Owned by the visible map; requests stop when its lifecycle stops. */
+/** Owned by the visible car screen; requests stop when its lifecycle stops. */
 class CarLocationUpdates(private val context: Context, private val changed: () -> Unit) {
     private val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private var registered = false
